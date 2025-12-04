@@ -39,7 +39,7 @@ pub struct ExchangeClient {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ExchangePayload {
+pub struct ExchangePayload {
     action: serde_json::Value,
     signature: Signature,
     nonce: u64,
@@ -196,6 +196,40 @@ impl ExchangeClient {
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
         let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
         self.post(action, signature, timestamp).await
+    }
+
+    pub async fn create_bulk_order(
+        &self,
+        orders: Vec<ClientOrderRequest>,
+        wallet: Option<&LocalWallet>,
+    ) -> Result<ExchangePayload> {
+        let wallet = wallet.unwrap_or(&self.wallet);
+        let timestamp = next_nonce();
+
+        let mut transformed_orders = Vec::new();
+
+        for order in orders {
+            transformed_orders.push(order.convert(&self.coin_to_asset)?);
+        }
+
+        let action = Actions::Order(BulkOrder {
+            orders: transformed_orders,
+            grouping: "na".to_string(),
+        });
+        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
+
+        let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
+        let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
+        let nonce = timestamp;
+
+        let exchange_payload = ExchangePayload {
+            action,
+            signature,
+            nonce,
+            vault_address: self.vault_address,
+        };
+        Ok(exchange_payload)
     }
 
     pub async fn cancel(
