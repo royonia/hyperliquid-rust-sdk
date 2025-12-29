@@ -16,7 +16,7 @@ use crate::{
         agent::mainnet::Agent, keccak, sign_l1_action, sign_usd_transfer_action, sign_with_agent,
         usdc_transfer::mainnet::UsdTransferSignPayload,
     },
-    BaseUrl, BulkCancelCloid, Error, ExchangeResponseStatus,
+    BaseUrl, BulkCancelCloid, Error, ExchangeResponseStatus, ScheduleCancel,
 };
 use ethers::{
     abi::AbiEncode,
@@ -57,6 +57,7 @@ pub enum Actions {
     Cancel(BulkCancel),
     CancelByCloid(BulkCancelCloid),
     Connect(AgentConnect),
+    ScheduleCancel(ScheduleCancel),
 }
 
 impl Actions {
@@ -372,6 +373,33 @@ impl ExchangeClient {
 
         let action = Actions::CancelByCloid(BulkCancelCloid {
             cancels: transformed_cancels,
+        });
+
+        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
+        let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
+        let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
+        let nonce = timestamp;
+
+        let exchange_payload = ExchangePayload {
+            action,
+            signature,
+            nonce,
+            vault_address: self.vault_address,
+        };
+        Ok(exchange_payload)
+    }
+
+    pub fn create_schedule_cancel(
+        &self,
+        time: Option<chrono::DateTime<chrono::Utc>>,
+        wallet: Option<&LocalWallet>,
+    ) -> Result<ExchangePayload> {
+        let wallet = wallet.unwrap_or(&self.wallet);
+        let timestamp = next_nonce();
+
+        let action = Actions::ScheduleCancel(ScheduleCancel {
+            time: time.map(|t| t.timestamp_millis()),
         });
 
         let connection_id = action.hash(timestamp, self.vault_address)?;
