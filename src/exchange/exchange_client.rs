@@ -9,7 +9,6 @@ use crate::{
     },
     helpers::{generate_random_key, next_nonce, uuid_to_hex_string, EthChain},
     info::info_client::InfoClient,
-    meta::{Meta, SpotMeta},
     prelude::*,
     req::HttpClient,
     signature::{
@@ -35,8 +34,6 @@ pub struct ExchangeClient {
     pub vault_address: Option<H160>,
     /// asset name to asset id
     pub coin_to_asset: HashMap<String, u32>,
-    /// symbol to asset struct
-    pub symbol_to_asset: HashMap<String, Asset>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -60,12 +57,6 @@ pub enum Actions {
     CancelByCloid(BulkCancelCloid),
     Connect(AgentConnect),
     ScheduleCancel(ScheduleCancel),
-}
-
-#[derive(Debug)]
-pub struct Asset {
-    id: u32,
-    name: String,
 }
 
 impl Actions {
@@ -95,7 +86,6 @@ impl ExchangeClient {
         let base_url = base_url.unwrap_or(BaseUrl::Mainnet);
 
         let mut asset_name_to_id = HashMap::new();
-        let mut symbol_to_asset_name = HashMap::new();
 
         let info = InfoClient::new(None, Some(base_url)).await?;
 
@@ -107,41 +97,47 @@ impl ExchangeClient {
             for spot_info in &spot_meta.universe {
                 // spot assets start at 10_000
                 let asset = spot_info.index + 10_000;
-                assert!(
-                    asset_name_to_id
-                        .insert(spot_info.name.clone(), asset)
-                        .is_none(),
-                    "duplicated spot asset entry: {}",
-                    spot_info.name,
-                );
 
-                symbol_to_asset_name.insert(spot_info.name.clone(), spot_info.name.clone());
                 let [base, quote] = spot_info.tokens;
-                let base_info = &spot_meta.tokens[base as usize];
-                assert_eq!(
-                    base_info.index, base,
-                    "mismatch spot base asset index. expect {base}. got {}",
-                    base_info.index
-                );
-                let quote_info = &spot_meta.tokens[quote as usize];
-                assert_eq!(
-                    quote_info.index, quote,
-                    "mismatch spot quote asset index. expect {quote}. got {}",
-                    quote_info.index
-                );
+                // just skip if malformed token returned
+                if spot_meta.tokens.len() < base as _ {
+                    eprintln!("Base token index out-of-bound: {base}");
+                    continue;
+                }
 
-                let name = format!("{}/{}", base_info.name, quote_info.name);
+                let base_info = &spot_meta.tokens[base as usize];
+                if base_info.index != base {
+                    eprintln!(
+                        "mismatch spot base asset index. expect {base}. got {}",
+                        base_info.index
+                    );
+                    continue;
+                }
+
+                // just skip if malformed token returned
+                if spot_meta.tokens.len() < quote as _ {
+                    eprintln!("Quote token index out-of-bound: {quote}");
+                    continue;
+                }
+                let quote_info = &spot_meta.tokens[quote as usize];
+                if quote_info.index != quote {
+                    eprintln!(
+                        "mismatch spot quote asset index. expect {quote}. got {}",
+                        quote_info.index
+                    );
+                    continue;
+                }
+
+                let symbol = format!("{}/{}", base_info.name, quote_info.name);
 
                 // PURR/USDC is the nasty special case in HL
                 if &base_info.name == "PURR" && &quote_info.name == "USDC" {
                     continue;
                 }
-                if !symbol_to_asset_name
-                    .insert(name, spot_info.name.clone())
-                    .is_none()
-                {
+
+                if !asset_name_to_id.insert(symbol.clone(), asset).is_none() {
                     eprintln!(
-                        "Not fatal but found override entry for spot name_to_coin: {}",
+                        "Not fatal but found override entry for spot asset_name_to_id: {}",
                         spot_info.name
                     );
                 }
@@ -162,19 +158,14 @@ impl ExchangeClient {
                         // set perp meta
                         let meta = info.meta(None).await?;
                         for (asset_ind, asset) in meta.universe.iter().enumerate() {
-                            assert!(
-                                asset_name_to_id
-                                    .insert(asset.name.clone(), asset_ind as u32)
-                                    .is_none(),
-                                "duplicated perp asset entry: {}",
-                                asset.name
-                            );
-                            if !symbol_to_asset_name
-                                .insert(asset.name.clone(), asset.name.clone())
-                                .is_none()
-                            {
+                            // never overrides entries
+                            if asset_name_to_id.contains_key(&asset.name) {
                                 eprintln!("duplicated perp asset entry: {}", asset.name);
+                                continue;
                             }
+                            assert!(asset_name_to_id
+                                .insert(asset.name.clone(), asset_ind as u32)
+                                .is_none(),);
                         }
                     }
                     continue;
@@ -189,6 +180,13 @@ impl ExchangeClient {
                 let dex_meta = info.meta(Some(perp_dex.name.to_owned())).await?;
 
                 for (asset_ind, asset) in dex_meta.universe.iter().enumerate() {
+                    if asset_name_to_id.contains_key(&asset.name) {
+                        eprintln!(
+                            "duplicated dex asset entry: {}, dex: {}",
+                            asset.name, perp_dex.name
+                        );
+                        continue;
+                    }
                     assert!(
                         asset_name_to_id
                             .insert(asset.name.clone(), asset_ind as u32 + offset)
@@ -196,41 +194,9 @@ impl ExchangeClient {
                         "duplicated dex asset entry: {}",
                         asset.name
                     );
-                    if !symbol_to_asset_name
-                        .insert(asset.name.clone(), asset.name.clone())
-                        .is_none()
-                    {
-                        eprintln!("duplicated dex asset entry: {}", asset.name);
-                    }
                 }
             }
         }
-
-        // a more consolidated mapping for symbol to asset lookup
-        // right now it's more for debugging purpose since the structure is not exposed
-        let mut symbol_to_asset = HashMap::new();
-
-        for (symbol, asset_name) in symbol_to_asset_name {
-            let asset_id = *asset_name_to_id
-                .get(&asset_name)
-                .ok_or_else(|| Error::AssetNotFound)?;
-
-            if !symbol_to_asset
-                .insert(
-                    symbol.clone(),
-                    Asset {
-                        id: asset_id,
-                        name: asset_name.clone(),
-                    },
-                )
-                .is_none()
-            {
-                eprintln!(
-                "override sybmol_to_asset entry: symbol: {symbol}, asset: {asset_id}/{asset_name}"
-                );
-            }
-        }
-
         Ok(ExchangeClient {
             wallet,
             vault_address,
@@ -239,7 +205,6 @@ impl ExchangeClient {
                 base_url: base_url.get_url(),
             },
             coin_to_asset: asset_name_to_id,
-            symbol_to_asset,
         })
     }
 

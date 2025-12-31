@@ -24,5 +24,5 @@ async fn main() {
     .await
     .unwrap();
 
-    info!("{:#?}", exchange_client.symbol_to_asset);
+    info!("{:#?}", exchange_client.coin_to_asset);
 }
