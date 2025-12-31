@@ -9,7 +9,7 @@ use crate::{
     },
     helpers::{generate_random_key, next_nonce, uuid_to_hex_string, EthChain},
     info::info_client::InfoClient,
-    meta::Meta,
+    meta::{Meta, SpotMeta},
     prelude::*,
     req::HttpClient,
     signature::{
@@ -32,9 +32,11 @@ use super::cancel::ClientCancelRequestCloid;
 pub struct ExchangeClient {
     pub http_client: HttpClient,
     pub wallet: LocalWallet,
-    pub meta: Meta,
     pub vault_address: Option<H160>,
+    /// asset name to asset id
     pub coin_to_asset: HashMap<String, u32>,
+    /// symbol to asset struct
+    pub symbol_to_asset: HashMap<String, Asset>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -60,6 +62,12 @@ pub enum Actions {
     ScheduleCancel(ScheduleCancel),
 }
 
+#[derive(Debug)]
+pub struct Asset {
+    id: u32,
+    name: String,
+}
+
 impl Actions {
     fn hash(&self, timestamp: u64, vault_address: Option<H160>) -> Result<H256> {
         let mut bytes =
@@ -81,32 +89,166 @@ impl ExchangeClient {
         wallet: LocalWallet,
         base_url: Option<BaseUrl>,
         meta: Option<Meta>,
+        spot_meta: Option<SpotMeta>,
+        interested_perp_dexs: Vec<String>,
         vault_address: Option<H160>,
     ) -> Result<ExchangeClient> {
         let client = client.unwrap_or_default();
         let base_url = base_url.unwrap_or(BaseUrl::Mainnet);
 
-        let meta = if let Some(meta) = meta {
-            meta
-        } else {
-            let info = InfoClient::new(None, Some(base_url)).await?;
-            info.meta().await?
-        };
+        let mut asset_name_to_id = HashMap::new();
+        let mut symbol_to_asset_name = HashMap::new();
 
-        let mut coin_to_asset = HashMap::new();
-        for (asset_ind, asset) in meta.universe.iter().enumerate() {
-            coin_to_asset.insert(asset.name.clone(), asset_ind as u32);
+        let info = InfoClient::new(None, Some(base_url)).await?;
+
+        // set spot meta
+        // https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/master/hyperliquid/info.py#L42
+        {
+            let spot_meta = if let Some(spot_meta) = spot_meta {
+                spot_meta
+            } else {
+                info.spot_meta().await?
+            };
+
+            for spot_info in &spot_meta.universe {
+                // spot assets start at 10_000
+                let asset = spot_info.index + 10_000;
+                assert!(
+                    asset_name_to_id
+                        .insert(spot_info.name.clone(), asset)
+                        .is_none(),
+                    "duplicated spot asset entry: {}",
+                    spot_info.name,
+                );
+
+                symbol_to_asset_name.insert(spot_info.name.clone(), spot_info.name.clone());
+                let [base, quote] = spot_info.tokens;
+                let base_info = &spot_meta.tokens[base as usize];
+                assert_eq!(
+                    base_info.index, base,
+                    "mismatch spot base asset index. expect {base}. got {}",
+                    base_info.index
+                );
+                let quote_info = &spot_meta.tokens[quote as usize];
+                assert_eq!(
+                    quote_info.index, quote,
+                    "mismatch spot quote asset index. expect {quote}. got {}",
+                    quote_info.index
+                );
+
+                let name = format!("{}/{}", base_info.name, quote_info.name);
+
+                // PURR/USDC is the nasty special case in HL
+                if &base_info.name == "PURR" && &quote_info.name == "USDC" {
+                    continue;
+                }
+                if !symbol_to_asset_name
+                    .insert(name, spot_info.name.clone())
+                    .is_none()
+                {
+                    eprintln!(
+                        "Not fatal but found override entry for spot name_to_coin: {}",
+                        spot_info.name
+                    );
+                }
+            }
+        }
+
+        // set perp meta
+        {
+            let meta = if let Some(meta) = meta {
+                meta
+            } else {
+                info.meta(None).await?
+            };
+            for (asset_ind, asset) in meta.universe.iter().enumerate() {
+                assert!(
+                    asset_name_to_id
+                        .insert(asset.name.clone(), asset_ind as u32)
+                        .is_none(),
+                    "duplicated perp asset entry: {}",
+                    asset.name
+                );
+                assert!(
+                    symbol_to_asset_name
+                        .insert(asset.name.clone(), asset.name.clone())
+                        .is_none(),
+                    "duplicated perp asset entry: {}",
+                    asset.name
+                );
+            }
+        }
+
+        // set builder deployed perpdex meta
+        {
+            let perp_dexs = info.perp_dexs().await?;
+
+            let mut perp_dex_to_offset = HashMap::new();
+            perp_dex_to_offset.insert("".to_string(), 0u32);
+
+            for (idx, perp_dex) in perp_dexs.iter().enumerate() {
+                // perp dex can be null - also a nasty special case for ""
+                let Some(perp_dex) = perp_dex.as_ref() else {
+                    continue;
+                };
+
+                // do not bother fetching info for uninterested perp dexs
+                if !interested_perp_dexs.contains(&perp_dex.name) {
+                    continue;
+                }
+                let offset = 100_000 + (idx as u32) * 10_000;
+
+                let dex_meta = info.meta(Some(perp_dex.name.to_owned())).await?;
+                perp_dex_to_offset.insert(perp_dex.name.clone(), offset);
+
+                for (asset_ind, asset) in dex_meta.universe.iter().enumerate() {
+                    assert!(
+                        asset_name_to_id
+                            .insert(asset.name.clone(), asset_ind as u32 + offset)
+                            .is_none(),
+                        "duplicated dex asset entry: {}",
+                        asset.name
+                    );
+                    assert!(
+                        symbol_to_asset_name
+                            .insert(asset.name.clone(), asset.name.clone())
+                            .is_none(),
+                        "duplicated dex asset entry: {}",
+                        asset.name
+                    );
+                }
+            }
+        }
+
+        // a more consolidated mapping for symbol to asset lookup
+        // right now it's more for debugging purpose since the structure is not exposed
+        let mut symbol_to_asset = HashMap::new();
+
+        for (symbol, asset_name) in symbol_to_asset_name {
+            let asset_id = *asset_name_to_id
+                .get(&asset_name)
+                .ok_or_else(|| Error::AssetNotFound)?;
+            assert!(
+                symbol_to_asset.insert(
+                    symbol.clone(),
+                    Asset {
+                        id: asset_id,
+                        name: asset_name.clone(),
+                    },
+                ).is_none(),
+                "duplicated sybmol_to_asset entry: symbol: {symbol}, asset: {asset_id}/{asset_name}"
+            );
         }
 
         Ok(ExchangeClient {
             wallet,
-            meta,
             vault_address,
             http_client: HttpClient {
                 client,
                 base_url: base_url.get_url(),
             },
-            coin_to_asset,
+            coin_to_asset: asset_name_to_id,
+            symbol_to_asset,
         })
     }
 

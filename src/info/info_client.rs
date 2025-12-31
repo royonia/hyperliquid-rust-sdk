@@ -3,7 +3,7 @@ use crate::{
         CandlesSnapshotResponse, FundingHistoryResponse, L2SnapshotResponse, OpenOrdersResponse,
         RecentTradesResponse, UserFillsResponse, UserStateResponse,
     },
-    meta::Meta,
+    meta::{Meta, PerpDexMeta, SpotMeta},
     prelude::*,
     req::HttpClient,
     ws::{Subscription, WsManager},
@@ -40,7 +40,10 @@ pub enum InfoRequest {
     OpenOrders {
         user: H160,
     },
-    Meta,
+    Meta {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dex: Option<String>,
+    },
     AllMids,
     UserFills {
         user: H160,
@@ -61,6 +64,10 @@ pub enum InfoRequest {
     CandleSnapshot {
         req: CandleSnapshotRequest,
     },
+    #[serde(rename_all = "camelCase")]
+    SpotMeta,
+    #[serde(rename_all = "camelCase")]
+    PerpDexs,
 }
 
 pub struct InfoClient {
@@ -138,8 +145,24 @@ impl InfoClient {
         serde_json::from_str(&return_data).map_err(|e| Error::JsonParse(e.to_string()))
     }
 
-    pub async fn meta(&self) -> Result<Meta> {
-        let input = InfoRequest::Meta;
+    pub async fn meta(&self, dex: Option<String>) -> Result<Meta> {
+        let input = InfoRequest::Meta { dex };
+        let data = serde_json::to_string(&input).map_err(|e| Error::JsonParse(e.to_string()))?;
+
+        let return_data = self.http_client.post("/info", data).await?;
+        serde_json::from_str(&return_data).map_err(|e| Error::JsonParse(e.to_string()))
+    }
+
+    pub async fn spot_meta(&self) -> Result<SpotMeta> {
+        let input = InfoRequest::SpotMeta;
+        let data = serde_json::to_string(&input).map_err(|e| Error::JsonParse(e.to_string()))?;
+
+        let return_data = self.http_client.post("/info", data).await?;
+        serde_json::from_str(&return_data).map_err(|e| Error::JsonParse(e.to_string()))
+    }
+
+    pub async fn perp_dexs(&self) -> Result<Vec<Option<PerpDexMeta>>> {
+        let input = InfoRequest::PerpDexs;
         let data = serde_json::to_string(&input).map_err(|e| Error::JsonParse(e.to_string()))?;
 
         let return_data = self.http_client.post("/info", data).await?;
