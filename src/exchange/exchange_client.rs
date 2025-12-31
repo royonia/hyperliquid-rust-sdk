@@ -169,13 +169,12 @@ impl ExchangeClient {
                                 "duplicated perp asset entry: {}",
                                 asset.name
                             );
-                            assert!(
-                                symbol_to_asset_name
-                                    .insert(asset.name.clone(), asset.name.clone())
-                                    .is_none(),
-                                "duplicated perp asset entry: {}",
-                                asset.name
-                            );
+                            if !symbol_to_asset_name
+                                .insert(asset.name.clone(), asset.name.clone())
+                                .is_none()
+                            {
+                                eprintln!("duplicated perp asset entry: {}", asset.name);
+                            }
                         }
                     }
                     continue;
@@ -197,13 +196,12 @@ impl ExchangeClient {
                         "duplicated dex asset entry: {}",
                         asset.name
                     );
-                    assert!(
-                        symbol_to_asset_name
-                            .insert(asset.name.clone(), asset.name.clone())
-                            .is_none(),
-                        "duplicated dex asset entry: {}",
-                        asset.name
-                    );
+                    if !symbol_to_asset_name
+                        .insert(asset.name.clone(), asset.name.clone())
+                        .is_none()
+                    {
+                        eprintln!("duplicated dex asset entry: {}", asset.name);
+                    }
                 }
             }
         }
@@ -216,16 +214,21 @@ impl ExchangeClient {
             let asset_id = *asset_name_to_id
                 .get(&asset_name)
                 .ok_or_else(|| Error::AssetNotFound)?;
-            assert!(
-                symbol_to_asset.insert(
+
+            if !symbol_to_asset
+                .insert(
                     symbol.clone(),
                     Asset {
                         id: asset_id,
                         name: asset_name.clone(),
                     },
-                ).is_none(),
-                "duplicated sybmol_to_asset entry: symbol: {symbol}, asset: {asset_id}/{asset_name}"
-            );
+                )
+                .is_none()
+            {
+                eprintln!(
+                "override sybmol_to_asset entry: symbol: {symbol}, asset: {asset_id}/{asset_name}"
+                );
+            }
         }
 
         Ok(ExchangeClient {
