@@ -49,17 +49,10 @@ impl MarketMaker {
         let user_address = input.wallet.address();
 
         let info_client = InfoClient::new(None, Some(BaseUrl::Testnet)).await.unwrap();
-        let exchange_client = ExchangeClient::new(
-            None,
-            input.wallet,
-            Some(BaseUrl::Testnet),
-            None,
-            None,
-            vec![],
-            None,
-        )
-        .await
-        .unwrap();
+        let exchange_client =
+            ExchangeClient::new(None, input.wallet, Some(BaseUrl::Testnet), vec![], None)
+                .await
+                .unwrap();
 
         MarketMaker {
             asset: input.asset,

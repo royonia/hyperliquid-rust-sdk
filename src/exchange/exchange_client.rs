@@ -16,7 +16,7 @@ use crate::{
         agent::mainnet::Agent, keccak, sign_l1_action, sign_usd_transfer_action, sign_with_agent,
         usdc_transfer::mainnet::UsdTransferSignPayload,
     },
-    BaseUrl, BulkCancelCloid, Error, ExchangeResponseStatus, ScheduleCancel,
+    BaseUrl, BulkCancelCloid, Dex, Error, ExchangeResponseStatus, ScheduleCancel,
 };
 use ethers::{
     abi::AbiEncode,
@@ -88,8 +88,6 @@ impl ExchangeClient {
         client: Option<Client>,
         wallet: LocalWallet,
         base_url: Option<BaseUrl>,
-        meta: Option<Meta>,
-        spot_meta: Option<SpotMeta>,
         interested_perp_dexs: Vec<String>,
         vault_address: Option<H160>,
     ) -> Result<ExchangeClient> {
@@ -104,11 +102,7 @@ impl ExchangeClient {
         // set spot meta
         // https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/master/hyperliquid/info.py#L42
         {
-            let spot_meta = if let Some(spot_meta) = spot_meta {
-                spot_meta
-            } else {
-                info.spot_meta().await?
-            };
+            let spot_meta = info.spot_meta().await?;
 
             for spot_info in &spot_meta.universe {
                 // spot assets start at 10_000
@@ -154,41 +148,36 @@ impl ExchangeClient {
             }
         }
 
-        // set perp meta
-        {
-            let meta = if let Some(meta) = meta {
-                meta
-            } else {
-                info.meta(None).await?
-            };
-            for (asset_ind, asset) in meta.universe.iter().enumerate() {
-                assert!(
-                    asset_name_to_id
-                        .insert(asset.name.clone(), asset_ind as u32)
-                        .is_none(),
-                    "duplicated perp asset entry: {}",
-                    asset.name
-                );
-                assert!(
-                    symbol_to_asset_name
-                        .insert(asset.name.clone(), asset.name.clone())
-                        .is_none(),
-                    "duplicated perp asset entry: {}",
-                    asset.name
-                );
-            }
-        }
-
         // set builder deployed perpdex meta
         {
             let perp_dexs = info.perp_dexs().await?;
 
-            let mut perp_dex_to_offset = HashMap::new();
-            perp_dex_to_offset.insert("".to_string(), 0u32);
-
             for (idx, perp_dex) in perp_dexs.iter().enumerate() {
                 // perp dex can be null - also a nasty special case for ""
                 let Some(perp_dex) = perp_dex.as_ref() else {
+                    // the Hyperliquid special case
+                    if idx == 0
+                        && interested_perp_dexs.contains(&Dex::Hyperliquid.dex_name().to_string())
+                    {
+                        // set perp meta
+                        let meta = info.meta(None).await?;
+                        for (asset_ind, asset) in meta.universe.iter().enumerate() {
+                            assert!(
+                                asset_name_to_id
+                                    .insert(asset.name.clone(), asset_ind as u32)
+                                    .is_none(),
+                                "duplicated perp asset entry: {}",
+                                asset.name
+                            );
+                            assert!(
+                                symbol_to_asset_name
+                                    .insert(asset.name.clone(), asset.name.clone())
+                                    .is_none(),
+                                "duplicated perp asset entry: {}",
+                                asset.name
+                            );
+                        }
+                    }
                     continue;
                 };
 
@@ -199,7 +188,6 @@ impl ExchangeClient {
                 let offset = 100_000 + (idx as u32) * 10_000;
 
                 let dex_meta = info.meta(Some(perp_dex.name.to_owned())).await?;
-                perp_dex_to_offset.insert(perp_dex.name.clone(), offset);
 
                 for (asset_ind, asset) in dex_meta.universe.iter().enumerate() {
                     assert!(

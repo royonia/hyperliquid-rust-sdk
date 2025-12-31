@@ -12,17 +12,9 @@ async fn main() {
         .unwrap();
 
     let address = wallet.address();
-    let exchange_client = ExchangeClient::new(
-        None,
-        wallet,
-        Some(BaseUrl::Testnet),
-        None,
-        None,
-        vec![],
-        None,
-    )
-    .await
-    .unwrap();
+    let exchange_client = ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), vec![], None)
+        .await
+        .unwrap();
     let info_client = InfoClient::new(None, Some(BaseUrl::Testnet)).await.unwrap();
 
     let response = exchange_client

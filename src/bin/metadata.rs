@@ -1,7 +1,7 @@
 use log::info;
 
 use ethers::signers::LocalWallet;
-use hyperliquid_rust_sdk::{BaseUrl, ExchangeClient};
+use hyperliquid_rust_sdk::{BaseUrl, Dex, ExchangeClient};
 
 #[tokio::main]
 async fn main() {
@@ -15,9 +15,10 @@ async fn main() {
         None,
         wallet,
         Some(BaseUrl::Mainnet),
-        None,
-        None,
-        vec!["hyna".to_string()],
+        vec![
+            Dex::Hyperliquid.dex_name().to_string(),
+            Dex::Hyena.dex_name().to_string(),
+        ],
         None,
     )
     .await
