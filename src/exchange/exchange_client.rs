@@ -32,8 +32,18 @@ pub struct ExchangeClient {
     pub http_client: HttpClient,
     pub wallet: LocalWallet,
     pub vault_address: Option<H160>,
-    /// asset name to asset id
-    pub coin_to_asset: HashMap<String, u32>,
+    /// symbol to asset id
+    /// e.g.
+    ///   "USOL/USDC": 10156,
+    ///   "BTC": 0,
+    ///   "hyna:ETH": 140001,
+    pub symbol_to_asset_id: HashMap<String, u32>,
+    /// exchange asset name to parsable symbol
+    /// e.g.
+    ///   "@142": "UBTC/USDC",
+    ///   "hyna:SOL": "hyna:SOL",
+    ///   "BTC": "BTC",
+    pub asset_name_to_symbol: HashMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -85,7 +95,8 @@ impl ExchangeClient {
         let client = client.unwrap_or_default();
         let base_url = base_url.unwrap_or(BaseUrl::Mainnet);
 
-        let mut asset_name_to_id = HashMap::new();
+        let mut symbol_to_asset_id = HashMap::new();
+        let mut asset_name_to_symbol = HashMap::new();
 
         let info = InfoClient::new(None, Some(base_url)).await?;
 
@@ -135,12 +146,14 @@ impl ExchangeClient {
                     continue;
                 }
 
-                if !asset_name_to_id.insert(symbol.clone(), asset).is_none() {
+                if !symbol_to_asset_id.insert(symbol.clone(), asset).is_none() {
                     eprintln!(
-                        "Not fatal but found override entry for spot asset_name_to_id: {}",
+                        "Override entry for spot asset_name_to_id: {}",
                         spot_info.name
                     );
                 }
+
+                asset_name_to_symbol.insert(spot_info.name.clone(), symbol.clone());
             }
         }
 
@@ -159,13 +172,15 @@ impl ExchangeClient {
                         let meta = info.meta(None).await?;
                         for (asset_ind, asset) in meta.universe.iter().enumerate() {
                             // never overrides entries
-                            if asset_name_to_id.contains_key(&asset.name) {
+                            if symbol_to_asset_id.contains_key(&asset.name) {
                                 eprintln!("duplicated perp asset entry: {}", asset.name);
                                 continue;
                             }
-                            assert!(asset_name_to_id
+                            assert!(symbol_to_asset_id
                                 .insert(asset.name.clone(), asset_ind as u32)
                                 .is_none(),);
+
+                            asset_name_to_symbol.insert(asset.name.clone(), asset.name.clone());
                         }
                     }
                     continue;
@@ -180,7 +195,7 @@ impl ExchangeClient {
                 let dex_meta = info.meta(Some(perp_dex.name.to_owned())).await?;
 
                 for (asset_ind, asset) in dex_meta.universe.iter().enumerate() {
-                    if asset_name_to_id.contains_key(&asset.name) {
+                    if symbol_to_asset_id.contains_key(&asset.name) {
                         eprintln!(
                             "duplicated dex asset entry: {}, dex: {}",
                             asset.name, perp_dex.name
@@ -188,12 +203,14 @@ impl ExchangeClient {
                         continue;
                     }
                     assert!(
-                        asset_name_to_id
+                        symbol_to_asset_id
                             .insert(asset.name.clone(), asset_ind as u32 + offset)
                             .is_none(),
                         "duplicated dex asset entry: {}",
                         asset.name
                     );
+
+                    asset_name_to_symbol.insert(asset.name.clone(), asset.name.clone());
                 }
             }
         }
@@ -204,7 +221,8 @@ impl ExchangeClient {
                 client,
                 base_url: base_url.get_url(),
             },
-            coin_to_asset: asset_name_to_id,
+            symbol_to_asset_id,
+            asset_name_to_symbol,
         })
     }
 
@@ -282,7 +300,7 @@ impl ExchangeClient {
         let mut transformed_orders = Vec::new();
 
         for order in orders {
-            transformed_orders.push(order.convert(&self.coin_to_asset)?);
+            transformed_orders.push(order.convert(&self.symbol_to_asset_id)?);
         }
 
         let action = Actions::Order(BulkOrder {
@@ -308,7 +326,7 @@ impl ExchangeClient {
         let mut transformed_orders = Vec::new();
 
         for order in orders {
-            transformed_orders.push(order.convert(&self.coin_to_asset)?);
+            transformed_orders.push(order.convert(&self.symbol_to_asset_id)?);
         }
 
         let action = Actions::Order(BulkOrder {
@@ -350,7 +368,7 @@ impl ExchangeClient {
         let mut transformed_cancels = Vec::new();
         for cancel in cancels.into_iter() {
             let &asset = self
-                .coin_to_asset
+                .symbol_to_asset_id
                 .get(&cancel.asset)
                 .ok_or(Error::AssetNotFound)?;
             transformed_cancels.push(CancelRequest {
@@ -381,7 +399,7 @@ impl ExchangeClient {
         let mut transformed_cancels = Vec::new();
         for cancel in cancels.into_iter() {
             let &asset = self
-                .coin_to_asset
+                .symbol_to_asset_id
                 .get(&cancel.asset)
                 .ok_or(Error::AssetNotFound)?;
             transformed_cancels.push(CancelRequest {
@@ -428,7 +446,7 @@ impl ExchangeClient {
         let mut transformed_cancels: Vec<CancelRequestCloid> = Vec::new();
         for cancel in cancels.into_iter() {
             let &asset = self
-                .coin_to_asset
+                .symbol_to_asset_id
                 .get(&cancel.asset)
                 .ok_or(Error::AssetNotFound)?;
             transformed_cancels.push(CancelRequestCloid {
@@ -460,7 +478,7 @@ impl ExchangeClient {
         let mut transformed_cancels: Vec<CancelRequestCloid> = Vec::new();
         for cancel in cancels.into_iter() {
             let &asset = self
-                .coin_to_asset
+                .symbol_to_asset_id
                 .get(&cancel.asset)
                 .ok_or(Error::AssetNotFound)?;
             transformed_cancels.push(CancelRequestCloid {
@@ -526,7 +544,10 @@ impl ExchangeClient {
 
         let timestamp = next_nonce();
 
-        let &asset_index = self.coin_to_asset.get(coin).ok_or(Error::AssetNotFound)?;
+        let &asset_index = self
+            .symbol_to_asset_id
+            .get(coin)
+            .ok_or(Error::AssetNotFound)?;
         let action = Actions::UpdateLeverage(UpdateLeverage {
             asset: asset_index,
             is_cross,
@@ -551,7 +572,10 @@ impl ExchangeClient {
         let amount = (amount * 1_000_000.0).round() as i64;
         let timestamp = next_nonce();
 
-        let &asset_index = self.coin_to_asset.get(coin).ok_or(Error::AssetNotFound)?;
+        let &asset_index = self
+            .symbol_to_asset_id
+            .get(coin)
+            .ok_or(Error::AssetNotFound)?;
         let action = Actions::UpdateIsolatedMargin(UpdateIsolatedMargin {
             asset: asset_index,
             is_buy: true,
