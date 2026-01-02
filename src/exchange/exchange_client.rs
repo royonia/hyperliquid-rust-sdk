@@ -32,6 +32,11 @@ pub struct ExchangeClient {
     pub http_client: HttpClient,
     pub wallet: LocalWallet,
     pub vault_address: Option<H160>,
+    pub asset_mapping: AssetMapping,
+}
+
+#[derive(Clone)]
+pub struct AssetMapping {
     /// symbol to asset id
     /// e.g.
     ///   "USOL/USDC": 10156,
@@ -46,59 +51,10 @@ pub struct ExchangeClient {
     pub asset_name_to_symbol: HashMap<String, String>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExchangePayload {
-    action: serde_json::Value,
-    signature: Signature,
-    nonce: u64,
-    vault_address: Option<H160>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
-#[serde(rename_all = "camelCase")]
-pub enum Actions {
-    UsdTransfer(UsdcTransfer),
-    UpdateLeverage(UpdateLeverage),
-    UpdateIsolatedMargin(UpdateIsolatedMargin),
-    Order(BulkOrder),
-    Cancel(BulkCancel),
-    CancelByCloid(BulkCancelCloid),
-    Connect(AgentConnect),
-    ScheduleCancel(ScheduleCancel),
-}
-
-impl Actions {
-    fn hash(&self, timestamp: u64, vault_address: Option<H160>) -> Result<H256> {
-        let mut bytes =
-            rmp_serde::to_vec_named(self).map_err(|e| Error::RmpParse(e.to_string()))?;
-        bytes.extend(timestamp.to_be_bytes());
-        if let Some(vault_address) = vault_address {
-            bytes.push(1);
-            bytes.extend(vault_address.to_fixed_bytes());
-        } else {
-            bytes.push(0);
-        }
-        Ok(H256(ethers::utils::keccak256(bytes)))
-    }
-}
-
-impl ExchangeClient {
-    pub async fn new(
-        client: Option<Client>,
-        wallet: LocalWallet,
-        base_url: Option<BaseUrl>,
-        interested_perp_dexs: Vec<String>,
-        vault_address: Option<H160>,
-    ) -> Result<ExchangeClient> {
-        let client = client.unwrap_or_default();
-        let base_url = base_url.unwrap_or(BaseUrl::Mainnet);
-
+impl AssetMapping {
+    pub async fn new(info: InfoClient, interested_perp_dexs: Vec<String>) -> Result<Self> {
         let mut symbol_to_asset_id = HashMap::new();
         let mut asset_name_to_symbol = HashMap::new();
-
-        let info = InfoClient::new(None, Some(base_url)).await?;
 
         // set spot meta
         // https://github.com/hyperliquid-dex/hyperliquid-python-sdk/blob/master/hyperliquid/info.py#L42
@@ -152,6 +108,9 @@ impl ExchangeClient {
                         spot_info.name
                     );
                 }
+
+                // we want to support mapping directly from spot asset name to id as well
+                symbol_to_asset_id.insert(spot_info.name.clone(), asset);
 
                 asset_name_to_symbol.insert(spot_info.name.clone(), symbol.clone());
             }
@@ -214,6 +173,75 @@ impl ExchangeClient {
                 }
             }
         }
+
+        Ok(Self {
+            symbol_to_asset_id,
+            asset_name_to_symbol,
+        })
+    }
+
+    pub fn asset_id(&self, symbol: &str) -> Option<u32> {
+        self.symbol_to_asset_id.get(symbol).cloned()
+    }
+
+    pub fn symbol(&self, asset_name: &str) -> Option<&String> {
+        self.asset_name_to_symbol.get(asset_name)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExchangePayload {
+    action: serde_json::Value,
+    signature: Signature,
+    nonce: u64,
+    vault_address: Option<H160>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type")]
+#[serde(rename_all = "camelCase")]
+pub enum Actions {
+    UsdTransfer(UsdcTransfer),
+    UpdateLeverage(UpdateLeverage),
+    UpdateIsolatedMargin(UpdateIsolatedMargin),
+    Order(BulkOrder),
+    Cancel(BulkCancel),
+    CancelByCloid(BulkCancelCloid),
+    Connect(AgentConnect),
+    ScheduleCancel(ScheduleCancel),
+}
+
+impl Actions {
+    fn hash(&self, timestamp: u64, vault_address: Option<H160>) -> Result<H256> {
+        let mut bytes =
+            rmp_serde::to_vec_named(self).map_err(|e| Error::RmpParse(e.to_string()))?;
+        bytes.extend(timestamp.to_be_bytes());
+        if let Some(vault_address) = vault_address {
+            bytes.push(1);
+            bytes.extend(vault_address.to_fixed_bytes());
+        } else {
+            bytes.push(0);
+        }
+        Ok(H256(ethers::utils::keccak256(bytes)))
+    }
+}
+
+impl ExchangeClient {
+    pub async fn new(
+        client: Option<Client>,
+        wallet: LocalWallet,
+        base_url: Option<BaseUrl>,
+        interested_perp_dexs: Vec<String>,
+        vault_address: Option<H160>,
+    ) -> Result<ExchangeClient> {
+        let client = client.unwrap_or_default();
+        let base_url = base_url.unwrap_or(BaseUrl::Mainnet);
+
+        let info = InfoClient::new(Some(client.clone()), Some(base_url)).await?;
+
+        let asset_mapping = AssetMapping::new(info, interested_perp_dexs).await?;
+
         Ok(ExchangeClient {
             wallet,
             vault_address,
@@ -221,8 +249,7 @@ impl ExchangeClient {
                 client,
                 base_url: base_url.get_url(),
             },
-            symbol_to_asset_id,
-            asset_name_to_symbol,
+            asset_mapping,
         })
     }
 
@@ -300,7 +327,7 @@ impl ExchangeClient {
         let mut transformed_orders = Vec::new();
 
         for order in orders {
-            transformed_orders.push(order.convert(&self.symbol_to_asset_id)?);
+            transformed_orders.push(order.convert());
         }
 
         let action = Actions::Order(BulkOrder {
@@ -326,7 +353,7 @@ impl ExchangeClient {
         let mut transformed_orders = Vec::new();
 
         for order in orders {
-            transformed_orders.push(order.convert(&self.symbol_to_asset_id)?);
+            transformed_orders.push(order.convert());
         }
 
         let action = Actions::Order(BulkOrder {
@@ -367,12 +394,8 @@ impl ExchangeClient {
 
         let mut transformed_cancels = Vec::new();
         for cancel in cancels.into_iter() {
-            let &asset = self
-                .symbol_to_asset_id
-                .get(&cancel.asset)
-                .ok_or(Error::AssetNotFound)?;
             transformed_cancels.push(CancelRequest {
-                asset,
+                asset: cancel.asset,
                 oid: cancel.oid,
             });
         }
@@ -398,12 +421,8 @@ impl ExchangeClient {
 
         let mut transformed_cancels = Vec::new();
         for cancel in cancels.into_iter() {
-            let &asset = self
-                .symbol_to_asset_id
-                .get(&cancel.asset)
-                .ok_or(Error::AssetNotFound)?;
             transformed_cancels.push(CancelRequest {
-                asset,
+                asset: cancel.asset,
                 oid: cancel.oid,
             });
         }
@@ -445,12 +464,8 @@ impl ExchangeClient {
 
         let mut transformed_cancels: Vec<CancelRequestCloid> = Vec::new();
         for cancel in cancels.into_iter() {
-            let &asset = self
-                .symbol_to_asset_id
-                .get(&cancel.asset)
-                .ok_or(Error::AssetNotFound)?;
             transformed_cancels.push(CancelRequestCloid {
-                asset,
+                asset: cancel.asset,
                 cloid: uuid_to_hex_string(cancel.cloid),
             });
         }
@@ -477,12 +492,8 @@ impl ExchangeClient {
 
         let mut transformed_cancels: Vec<CancelRequestCloid> = Vec::new();
         for cancel in cancels.into_iter() {
-            let &asset = self
-                .symbol_to_asset_id
-                .get(&cancel.asset)
-                .ok_or(Error::AssetNotFound)?;
             transformed_cancels.push(CancelRequestCloid {
-                asset,
+                asset: cancel.asset,
                 cloid: uuid_to_hex_string(cancel.cloid),
             });
         }
@@ -536,7 +547,7 @@ impl ExchangeClient {
     pub async fn update_leverage(
         &self,
         leverage: u32,
-        coin: &str,
+        asset: u32,
         is_cross: bool,
         wallet: Option<&LocalWallet>,
     ) -> Result<ExchangeResponseStatus> {
@@ -544,12 +555,8 @@ impl ExchangeClient {
 
         let timestamp = next_nonce();
 
-        let &asset_index = self
-            .symbol_to_asset_id
-            .get(coin)
-            .ok_or(Error::AssetNotFound)?;
         let action = Actions::UpdateLeverage(UpdateLeverage {
-            asset: asset_index,
+            asset,
             is_cross,
             leverage,
         });
@@ -564,7 +571,7 @@ impl ExchangeClient {
     pub async fn update_isolated_margin(
         &self,
         amount: f64,
-        coin: &str,
+        asset: u32,
         wallet: Option<&LocalWallet>,
     ) -> Result<ExchangeResponseStatus> {
         let wallet = wallet.unwrap_or(&self.wallet);
@@ -572,12 +579,8 @@ impl ExchangeClient {
         let amount = (amount * 1_000_000.0).round() as i64;
         let timestamp = next_nonce();
 
-        let &asset_index = self
-            .symbol_to_asset_id
-            .get(coin)
-            .ok_or(Error::AssetNotFound)?;
         let action = Actions::UpdateIsolatedMargin(UpdateIsolatedMargin {
-            asset: asset_index,
+            asset,
             is_buy: true,
             ntli: amount,
         });

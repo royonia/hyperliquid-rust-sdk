@@ -61,7 +61,7 @@ pub enum ClientOrder {
     Trigger(ClientTrigger),
 }
 pub struct ClientOrderRequest {
-    pub asset: String,
+    pub asset: u32,
     pub is_buy: bool,
     pub reduce_only: bool,
     pub limit_px: f64,
@@ -71,7 +71,7 @@ pub struct ClientOrderRequest {
 }
 
 impl ClientOrderRequest {
-    pub(crate) fn convert(self, coin_to_asset: &HashMap<String, u32>) -> Result<OrderRequest> {
+    pub(crate) fn convert(self) -> OrderRequest {
         let order_type = match self.order_type {
             ClientOrder::Limit(limit) => Order::Limit(Limit { tif: limit.tif }),
             ClientOrder::Trigger(trigger) => Order::Trigger(Trigger {
@@ -80,18 +80,16 @@ impl ClientOrderRequest {
                 tpsl: trigger.tpsl,
             }),
         };
-        let &asset = coin_to_asset.get(&self.asset).ok_or(Error::AssetNotFound)?;
-
         let cloid = self.cloid.map(uuid_to_hex_string);
 
-        Ok(OrderRequest {
-            asset,
+        OrderRequest {
+            asset: self.asset,
             is_buy: self.is_buy,
             reduce_only: self.reduce_only,
             limit_px: float_to_string_for_hashing(self.limit_px),
             sz: float_to_string_for_hashing(self.sz),
             order_type,
             cloid,
-        })
+        }
     }
 }
