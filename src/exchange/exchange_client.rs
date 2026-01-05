@@ -231,24 +231,21 @@ impl ExchangeClient {
     pub async fn new(
         client: Option<Client>,
         wallet: LocalWallet,
-        base_url: Option<BaseUrl>,
+        base_url: Option<String>,
         interested_perp_dexs: Vec<String>,
         vault_address: Option<H160>,
     ) -> Result<ExchangeClient> {
         let client = client.unwrap_or_default();
-        let base_url = base_url.unwrap_or(BaseUrl::Mainnet);
+        let base_url = base_url.unwrap_or(BaseUrl::Mainnet.get_url());
 
-        let info = InfoClient::new(Some(client.clone()), Some(base_url)).await?;
+        let info = InfoClient::new(Some(client.clone()), Some(base_url.clone())).await?;
 
         let asset_mapping = AssetMapping::new(info, interested_perp_dexs).await?;
 
         Ok(ExchangeClient {
             wallet,
             vault_address,
-            http_client: HttpClient {
-                client,
-                base_url: base_url.get_url(),
-            },
+            http_client: HttpClient { client, base_url },
             asset_mapping,
         })
     }

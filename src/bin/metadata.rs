@@ -7,7 +7,9 @@ async fn main() {
     env_logger::init();
 
     let assets = AssetMapping::new(
-        InfoClient::new(None, Some(BaseUrl::Mainnet)).await.unwrap(),
+        InfoClient::new(None, Some(BaseUrl::Mainnet.get_url()))
+            .await
+            .unwrap(),
         vec![
             Dex::Hyperliquid.dex_name().to_string(),
             Dex::Hyena.dex_name().to_string(),

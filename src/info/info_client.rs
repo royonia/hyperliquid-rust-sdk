@@ -76,9 +76,9 @@ pub struct InfoClient {
 }
 
 impl InfoClient {
-    pub async fn new(client: Option<Client>, base_url: Option<BaseUrl>) -> Result<InfoClient> {
+    pub async fn new(client: Option<Client>, base_url: Option<String>) -> Result<InfoClient> {
         let client = client.unwrap_or_default();
-        let base_url = base_url.unwrap_or(BaseUrl::Mainnet).get_url();
+        let base_url = base_url.unwrap_or(BaseUrl::Mainnet.get_url());
 
         Ok(InfoClient {
             http_client: HttpClient { client, base_url },

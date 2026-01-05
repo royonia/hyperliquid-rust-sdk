@@ -12,19 +12,24 @@ async fn main() {
         .unwrap();
 
     let address = wallet.address();
-    let exchange_client = ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), vec![], None)
+    let exchange_client =
+        ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet.get_url()), vec![], None)
+            .await
+            .unwrap();
+    let info_client = InfoClient::new(None, Some(BaseUrl::Testnet.get_url()))
         .await
         .unwrap();
-    let info_client = InfoClient::new(None, Some(BaseUrl::Testnet)).await.unwrap();
+
+    let btc_perp = 0u32;
 
     let response = exchange_client
-        .update_leverage(5, "ETH", false, None)
+        .update_leverage(5, btc_perp, false, None)
         .await
         .unwrap();
     info!("Update leverage response: {response:?}");
 
     let response = exchange_client
-        .update_isolated_margin(1.0, "ETH", None)
+        .update_isolated_margin(1.0, btc_perp, None)
         .await
         .unwrap();
 

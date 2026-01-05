@@ -6,7 +6,9 @@ use std::str::FromStr;
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    let info_client = InfoClient::new(None, Some(BaseUrl::Testnet)).await.unwrap();
+    let info_client = InfoClient::new(None, Some(BaseUrl::Testnet.get_url()))
+        .await
+        .unwrap();
     open_orders_example(&info_client).await;
     user_state_example(&info_client).await;
     user_states_example(&info_client).await;
@@ -65,7 +67,7 @@ async fn recent_trades(info_client: &InfoClient) {
 }
 
 async fn meta_example(info_client: &InfoClient) {
-    info!("Metadata: {:?}", info_client.meta().await.unwrap());
+    info!("Metadata: {:?}", info_client.meta(None).await.unwrap());
 }
 
 async fn all_mids_example(info_client: &InfoClient) {

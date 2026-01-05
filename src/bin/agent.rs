@@ -11,9 +11,10 @@ async fn main() {
         .parse()
         .unwrap();
 
-    let exchange_client = ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), vec![], None)
-        .await
-        .unwrap();
+    let exchange_client =
+        ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet.get_url()), vec![], None)
+            .await
+            .unwrap();
 
     /*
         Create a new wallet with the agent.
@@ -27,12 +28,13 @@ async fn main() {
 
     info!("Agent address: {:?}", wallet.address());
 
-    let exchange_client = ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), vec![], None)
-        .await
-        .unwrap();
+    let exchange_client =
+        ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet.get_url()), vec![], None)
+            .await
+            .unwrap();
 
     let order = ClientOrderRequest {
-        asset: "ETH".to_string(),
+        asset: 0,
         is_buy: true,
         reduce_only: false,
         limit_px: 1795.0,

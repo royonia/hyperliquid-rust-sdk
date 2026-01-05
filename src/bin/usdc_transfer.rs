@@ -10,9 +10,10 @@ async fn main() {
         .parse()
         .unwrap();
 
-    let exchange_client = ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), vec![], None)
-        .await
-        .unwrap();
+    let exchange_client =
+        ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet.get_url()), vec![], None)
+            .await
+            .unwrap();
 
     let amount = "1"; // 1 USD
     let destination = "0x0D1d9635D0640821d15e323ac8AdADfA9c111414";
