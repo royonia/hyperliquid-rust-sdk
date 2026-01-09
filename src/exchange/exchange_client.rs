@@ -210,6 +210,7 @@ pub enum Actions {
     CancelByCloid(BulkCancelCloid),
     Connect(AgentConnect),
     ScheduleCancel(ScheduleCancel),
+    Noop,
 }
 
 impl Actions {
@@ -373,6 +374,40 @@ impl ExchangeClient {
         Ok(exchange_payload)
     }
 
+    pub fn create_bulk_order_with_nonce(
+        &self,
+        orders: Vec<ClientOrderRequest>,
+        wallet: Option<&LocalWallet>,
+    ) -> Result<(ExchangePayload, u64)> {
+        let wallet = wallet.unwrap_or(&self.wallet);
+        let timestamp = next_nonce();
+
+        let mut transformed_orders = Vec::new();
+
+        for order in orders {
+            transformed_orders.push(order.convert(&self.coin_to_asset)?);
+        }
+
+        let action = Actions::Order(BulkOrder {
+            orders: transformed_orders,
+            grouping: "na".to_string(),
+        });
+        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
+
+        let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
+        let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
+        let nonce = timestamp;
+
+        let exchange_payload = ExchangePayload {
+            action,
+            signature,
+            nonce,
+            vault_address: self.vault_address,
+        };
+        Ok((exchange_payload, nonce))
+    }
+
     pub async fn cancel(
         &self,
         cancel: ClientCancelRequest,
@@ -531,6 +566,25 @@ impl ExchangeClient {
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
         let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
         let nonce = timestamp;
+
+        let exchange_payload = ExchangePayload {
+            action,
+            signature,
+            nonce,
+            vault_address: self.vault_address,
+        };
+        Ok(exchange_payload)
+    }
+
+    pub fn create_noop(&self, nonce: u64, wallet: Option<&LocalWallet>) -> Result<ExchangePayload> {
+        let wallet = wallet.unwrap_or(&self.wallet);
+
+        let action = Actions::Noop;
+        let connection_id = action.hash(nonce, self.vault_address)?;
+        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
+
+        let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
+        let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
 
         let exchange_payload = ExchangePayload {
             action,
@@ -759,6 +813,19 @@ mod tests {
 
         let signature = sign_l1_action(&wallet, connection_id, false)?;
         assert_eq!(signature.to_string(), "6ffebadfd48067663390962539fbde76cfa36f53be65abe2ab72c9db6d0db44457720db9d7c4860f142a484f070c84eb4b9694c3a617c83f0d698a27e55fd5e01c");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_noop_action_hashing() -> Result<()> {
+        let wallet = get_wallet()?;
+        let action = Actions::Noop;
+        let connection_id = action.hash(1583838, None)?;
+
+        // Verify signatures can be generated for noop action
+        let _signature_mainnet = sign_l1_action(&wallet, connection_id, true)?;
+        let _signature_testnet = sign_l1_action(&wallet, connection_id, false)?;
 
         Ok(())
     }
