@@ -196,6 +196,8 @@ pub struct ExchangePayload {
     signature: Signature,
     nonce: u64,
     vault_address: Option<H160>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_after: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -262,6 +264,7 @@ impl ExchangeClient {
             signature,
             nonce,
             vault_address: self.vault_address,
+            expires_after: None,
         };
         let res = serde_json::to_string(&exchange_payload)
             .map_err(|e| Error::JsonParse(e.to_string()))?;
@@ -344,6 +347,7 @@ impl ExchangeClient {
         &self,
         orders: Vec<ClientOrderRequest>,
         wallet: Option<&LocalWallet>,
+        expires_after: Option<u64>,
     ) -> Result<ExchangePayload> {
         let wallet = wallet.unwrap_or(&self.wallet);
         let timestamp = next_nonce();
@@ -404,6 +408,7 @@ impl ExchangeClient {
             signature,
             nonce,
             vault_address: self.vault_address,
+            expires_after,
         };
         Ok((exchange_payload, nonce))
     }
@@ -474,6 +479,7 @@ impl ExchangeClient {
             signature,
             nonce,
             vault_address: self.vault_address,
+            expires_after: None,
         };
         Ok(exchange_payload)
     }
@@ -545,6 +551,7 @@ impl ExchangeClient {
             signature,
             nonce,
             vault_address: self.vault_address,
+            expires_after: None,
         };
         Ok(exchange_payload)
     }
@@ -572,6 +579,7 @@ impl ExchangeClient {
             signature,
             nonce,
             vault_address: self.vault_address,
+            expires_after: None,
         };
         Ok(exchange_payload)
     }
