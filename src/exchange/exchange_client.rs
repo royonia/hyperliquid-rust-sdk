@@ -216,7 +216,12 @@ pub enum Actions {
 }
 
 impl Actions {
-    fn hash(&self, timestamp: u64, vault_address: Option<H160>) -> Result<H256> {
+    fn hash(
+        &self,
+        timestamp: u64,
+        vault_address: Option<H160>,
+        expires_after: Option<u64>,
+    ) -> Result<H256> {
         let mut bytes =
             rmp_serde::to_vec_named(self).map_err(|e| Error::RmpParse(e.to_string()))?;
         bytes.extend(timestamp.to_be_bytes());
@@ -225,6 +230,11 @@ impl Actions {
             bytes.extend(vault_address.to_fixed_bytes());
         } else {
             bytes.push(0);
+        }
+
+        if let Some(expires_after) = expires_after {
+            bytes.push(0);
+            bytes.extend(expires_after.to_be_bytes());
         }
         Ok(H256(ethers::utils::keccak256(bytes)))
     }
@@ -335,7 +345,7 @@ impl ExchangeClient {
             orders: transformed_orders,
             grouping: "na".to_string(),
         });
-        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let connection_id = action.hash(timestamp, self.vault_address, None)?;
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
 
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
@@ -396,7 +406,7 @@ impl ExchangeClient {
             orders: transformed_orders,
             grouping: "na".to_string(),
         });
-        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let connection_id = action.hash(timestamp, self.vault_address, expires_after)?;
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
 
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
@@ -440,7 +450,7 @@ impl ExchangeClient {
         let action = Actions::Cancel(BulkCancel {
             cancels: transformed_cancels,
         });
-        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let connection_id = action.hash(timestamp, self.vault_address, None)?;
 
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
@@ -467,7 +477,7 @@ impl ExchangeClient {
         let action = Actions::Cancel(BulkCancel {
             cancels: transformed_cancels,
         });
-        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let connection_id = action.hash(timestamp, self.vault_address, None)?;
 
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
@@ -512,7 +522,7 @@ impl ExchangeClient {
             cancels: transformed_cancels,
         });
 
-        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let connection_id = action.hash(timestamp, self.vault_address, None)?;
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
         let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
@@ -540,7 +550,7 @@ impl ExchangeClient {
             cancels: transformed_cancels,
         });
 
-        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let connection_id = action.hash(timestamp, self.vault_address, None)?;
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
         let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
@@ -568,7 +578,7 @@ impl ExchangeClient {
             time: time.map(|t| t.timestamp_millis()),
         });
 
-        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let connection_id = action.hash(timestamp, self.vault_address, None)?;
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
         let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
@@ -619,7 +629,7 @@ impl ExchangeClient {
             is_cross,
             leverage,
         });
-        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let connection_id = action.hash(timestamp, self.vault_address, None)?;
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
         let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
@@ -643,7 +653,7 @@ impl ExchangeClient {
             is_buy: true,
             ntli: amount,
         });
-        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let connection_id = action.hash(timestamp, self.vault_address, None)?;
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
         let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
@@ -720,7 +730,7 @@ mod tests {
             }],
             grouping: "na".to_string(),
         });
-        let connection_id = action.hash(1583838, None)?;
+        let connection_id = action.hash(1583838, None, None)?;
 
         let signature = sign_l1_action(&wallet, connection_id, true)?;
         assert_eq!(signature.to_string(), "77957e58e70f43b6b68581f2dc42011fc384538a2e5b7bf42d5b936f19fbb67360721a8598727230f67080efee48c812a6a4442013fd3b0eed509171bef9f23f1c");
@@ -750,7 +760,7 @@ mod tests {
             }],
             grouping: "na".to_string(),
         });
-        let connection_id = action.hash(1583838, None)?;
+        let connection_id = action.hash(1583838, None, None)?;
 
         let signature = sign_l1_action(&wallet, connection_id, true)?;
         assert_eq!(signature.to_string(), "d3e894092eb27098077145714630a77bbe3836120ee29df7d935d8510b03a08f456de5ec1be82aa65fc6ecda9ef928b0445e212517a98858cfaa251c4cd7552b1c");
@@ -794,7 +804,7 @@ mod tests {
                 ],
                 grouping: "na".to_string(),
             });
-            let connection_id = action.hash(1583838, None)?;
+            let connection_id = action.hash(1583838, None, None)?;
 
             let signature = sign_l1_action(&wallet, connection_id, true)?;
             assert_eq!(signature.to_string(), mainnet_signature);
@@ -814,7 +824,7 @@ mod tests {
                 oid: 82382,
             }],
         });
-        let connection_id = action.hash(1583838, None)?;
+        let connection_id = action.hash(1583838, None, None)?;
 
         let signature = sign_l1_action(&wallet, connection_id, true)?;
         assert_eq!(signature.to_string(), "02f76cc5b16e0810152fa0e14e7b219f49c361e3325f771544c6f54e157bf9fa17ed0afc11a98596be85d5cd9f86600aad515337318f7ab346e5ccc1b03425d51b");
