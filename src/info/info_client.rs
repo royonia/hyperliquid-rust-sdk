@@ -80,6 +80,12 @@ impl InfoClient {
         let client = client.unwrap_or_default();
         let base_url = base_url.unwrap_or(BaseUrl::Mainnet.get_url());
 
+        if !base_url.starts_with("http") || base_url.len() < 4 {
+            return Err(Error::GenericParse(
+                "base_url must start with 'http' and be at least 4 characters".to_string(),
+            ));
+        }
+
         Ok(InfoClient {
             http_client: HttpClient { client, base_url },
             ws_manager: None,

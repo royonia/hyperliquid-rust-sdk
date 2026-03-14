@@ -24,4 +24,3 @@ pub struct CancelRequestCloid {
     pub asset: u32,
     pub cloid: String,
 }
-

@@ -67,7 +67,7 @@ impl AssetMapping {
 
                 let [base, quote] = spot_info.tokens;
                 // just skip if malformed token returned
-                if spot_meta.tokens.len() < base as _ {
+                if spot_meta.tokens.len() <= base as _ {
                     eprintln!("Base token index out-of-bound: {base}");
                     continue;
                 }
@@ -82,7 +82,7 @@ impl AssetMapping {
                 }
 
                 // just skip if malformed token returned
-                if spot_meta.tokens.len() < quote as _ {
+                if spot_meta.tokens.len() <= quote as _ {
                     eprintln!("Quote token index out-of-bound: {quote}");
                     continue;
                 }
@@ -359,34 +359,8 @@ impl ExchangeClient {
         wallet: Option<&LocalWallet>,
         expires_after: Option<u64>,
     ) -> Result<ExchangePayload> {
-        let wallet = wallet.unwrap_or(&self.wallet);
-        let timestamp = next_nonce();
-
-        let mut transformed_orders = Vec::new();
-
-        for order in orders {
-            transformed_orders.push(order.convert());
-        }
-
-        let action = Actions::Order(BulkOrder {
-            orders: transformed_orders,
-            grouping: "na".to_string(),
-        });
-        let connection_id = action.hash(timestamp, self.vault_address, expires_after)?;
-        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
-
-        let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
-        let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
-        let nonce = timestamp;
-
-        let exchange_payload = ExchangePayload {
-            action,
-            signature,
-            nonce,
-            vault_address: self.vault_address,
-            expires_after,
-        };
-        Ok(exchange_payload)
+        let (payload, _) = self.create_bulk_order_with_nonce(orders, wallet, expires_after)?;
+        Ok(payload)
     }
 
     pub fn create_bulk_order_with_nonce(
