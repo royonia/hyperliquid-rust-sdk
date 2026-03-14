@@ -372,7 +372,7 @@ impl ExchangeClient {
             orders: transformed_orders,
             grouping: "na".to_string(),
         });
-        let connection_id = action.hash(timestamp, self.vault_address)?;
+        let connection_id = action.hash(timestamp, self.vault_address, expires_after)?;
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
 
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
@@ -384,6 +384,7 @@ impl ExchangeClient {
             signature,
             nonce,
             vault_address: self.vault_address,
+            expires_after,
         };
         Ok(exchange_payload)
     }
@@ -392,6 +393,7 @@ impl ExchangeClient {
         &self,
         orders: Vec<ClientOrderRequest>,
         wallet: Option<&LocalWallet>,
+        expires_after: Option<u64>,
     ) -> Result<(ExchangePayload, u64)> {
         let wallet = wallet.unwrap_or(&self.wallet);
         let timestamp = next_nonce();
@@ -399,7 +401,7 @@ impl ExchangeClient {
         let mut transformed_orders = Vec::new();
 
         for order in orders {
-            transformed_orders.push(order.convert(&self.coin_to_asset)?);
+            transformed_orders.push(order.convert());
         }
 
         let action = Actions::Order(BulkOrder {
@@ -598,7 +600,7 @@ impl ExchangeClient {
         let wallet = wallet.unwrap_or(&self.wallet);
 
         let action = Actions::Noop;
-        let connection_id = action.hash(nonce, self.vault_address)?;
+        let connection_id = action.hash(nonce, self.vault_address, None)?;
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
 
         let is_mainnet = self.http_client.base_url == BaseUrl::Mainnet.get_url();
@@ -609,6 +611,7 @@ impl ExchangeClient {
             signature,
             nonce,
             vault_address: self.vault_address,
+            expires_after: None,
         };
         Ok(exchange_payload)
     }
@@ -839,7 +842,7 @@ mod tests {
     fn test_noop_action_hashing() -> Result<()> {
         let wallet = get_wallet()?;
         let action = Actions::Noop;
-        let connection_id = action.hash(1583838, None)?;
+        let connection_id = action.hash(1583838, None, None)?;
 
         // Verify signatures can be generated for noop action
         let _signature_mainnet = sign_l1_action(&wallet, connection_id, true)?;
