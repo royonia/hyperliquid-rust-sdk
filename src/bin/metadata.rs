@@ -1,18 +1,19 @@
 use log::info;
 
-use hyperliquid_rust_sdk::{AssetMapping, BaseUrl, Dex, InfoClient};
+use hyperliquid_rust_sdk::{AssetMapping, BaseUrl, Dex};
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
 
+    let client = reqwest::Client::new();
     let assets = AssetMapping::new(
-        InfoClient::new(None, Some(BaseUrl::Mainnet.get_url()))
-            .await
-            .unwrap(),
+        &client,
+        &BaseUrl::Mainnet.get_url(),
         vec![
-            Dex::Hyperliquid.dex_name().to_string(),
-            Dex::Hyena.dex_name().to_string(),
+            // Dex::Hyperliquid.dex_name().to_string(),
+            // Dex::Hyena.dex_name().to_string(),
+            Dex::Xyz.dex_name().to_string(),
         ],
     )
     .await
