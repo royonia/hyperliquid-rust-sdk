@@ -1,4 +1,3 @@
-// src/asset_mapping/mapping.rs
 use reqwest::Client;
 use std::collections::HashMap;
 
@@ -8,7 +7,17 @@ use super::fetch;
 
 #[derive(Clone, Debug)]
 pub struct AssetMapping {
+    /// symbol to asset id
+    /// e.g.
+    ///   "USOL/USDC": 10156,
+    ///   "BTC": 0,
+    ///   "hyna:ETH": 140001,
     pub symbol_to_asset_id: HashMap<String, u32>,
+    /// exchange asset name to parsable symbol
+    /// e.g.
+    ///   "@142": "UBTC/USDC",
+    ///   "hyna:SOL": "hyna:SOL",
+    ///   "BTC": "BTC",
     pub asset_name_to_symbol: HashMap<String, String>,
 }
 
