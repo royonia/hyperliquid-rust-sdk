@@ -11,6 +11,7 @@ mod req;
 mod signature;
 mod ws;
 pub mod asset_mapping;
+pub use asset_mapping::AssetMapping;
 pub use consts::{EPSILON, LOCAL_API_URL, MAINNET_API_URL, TESTNET_API_URL};
 pub use errors::Error;
 pub use exchange::*;
