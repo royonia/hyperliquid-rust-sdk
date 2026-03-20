@@ -1,5 +1,6 @@
 mod dex;
 mod error;
+mod fetch;
 mod meta;
 
 pub use dex::Dex;
