@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "hyperliquid-metadata"]
+
 [package]
 name = "hyperliquid_rust_sdk"
 version = "0.3.0"
@@ -18,6 +21,7 @@ ethers = {version = "0.17", features = ["eip712", "abigen"]}
 futures-util = "0.3.28"
 hex = "0.4.3"
 http = "0.2.9"
+hyperliquid-metadata = { path = "hyperliquid-metadata" }
 lazy_static = "1.3"
 log = "0.4.19"
 rand = "0.8.5"

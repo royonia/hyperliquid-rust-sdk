@@ -1507,6 +1507,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyperliquid-metadata"
+version = "0.1.0"
+dependencies = [
+ "reqwest 0.12.4",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "hyperliquid_rust_sdk"
 version = "0.3.0"
 dependencies = [
@@ -1516,6 +1526,7 @@ dependencies = [
  "futures-util",
  "hex",
  "http 0.2.11",
+ "hyperliquid-metadata",
  "lazy_static",
  "log",
  "rand",
