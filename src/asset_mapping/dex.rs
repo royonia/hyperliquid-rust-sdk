@@ -2,6 +2,7 @@
 pub enum Dex {
     Hyperliquid,
     Hyena,
+    Xyz,
 }
 
 impl Dex {
@@ -9,6 +10,7 @@ impl Dex {
         match self {
             Dex::Hyperliquid => "",
             Dex::Hyena => "hyna",
+            Dex::Xyz => "xyz",
         }
     }
 }
