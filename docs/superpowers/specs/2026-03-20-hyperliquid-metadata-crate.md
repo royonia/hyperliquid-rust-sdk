@@ -63,7 +63,7 @@ pub enum Dex { Hyperliquid, Hyena, Xyz }
 pub enum AssetMappingError { Request(reqwest::Error), JsonParse(String), Api { status_code, message } }
 ```
 
-Meta types (`Meta`, `SpotMeta`, etc.) remain `pub(crate)` — internal only.
+Meta types (`Meta`, `SpotMeta`, etc.) remain `pub(super)` — internal only, no visibility changes needed from current code.
 
 ### Source files
 
@@ -102,6 +102,14 @@ The `exchange/mod.rs` re-export `pub use crate::asset_mapping::Dex;` continues t
 ### Delete `src/asset_mapping/`
 
 Entire directory removed — logic now lives in `hyperliquid-metadata/`.
+
+### .gitignore
+
+Change `/target` to `target/` so it matches at any depth (covers `hyperliquid-metadata/target/` if someone builds from the subcrate directory).
+
+### Cargo.lock
+
+Will be regenerated with workspace metadata and the new `hyperliquid-metadata` package entry. Expect a large diff — commit it.
 
 ## Backward Compatibility
 
