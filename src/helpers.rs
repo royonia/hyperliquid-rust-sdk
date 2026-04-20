@@ -12,16 +12,30 @@ fn now_timestamp_ms() -> u64 {
 }
 
 pub(crate) fn next_nonce() -> u64 {
-    let nonce = CUR_NONCE.fetch_add(1, Ordering::Relaxed);
+    // nonce must be strictly monotonic AND stay close to wall clock.
+    // previous impl advanced by 1ms per call under load and only corrected after
+    // 5min of drift, and still returned the stale pre-correction value. the
+    // exchange rejected with "Invalid nonce: nonce too low" long before the
+    // correction ever fired.
     let now_ms = now_timestamp_ms();
-    if nonce > now_ms + 1000 {
-        info!("nonce progressed too far ahead {nonce} {now_ms}");
+    let mut prev = CUR_NONCE.load(Ordering::Relaxed);
+    loop {
+        let next = prev.max(now_ms).saturating_add(1);
+        match CUR_NONCE.compare_exchange_weak(
+            prev,
+            next,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => {
+                if next > now_ms + 1000 {
+                    info!("nonce progressed too far ahead {next} {now_ms}");
+                }
+                return next;
+            }
+            Err(actual) => prev = actual,
+        }
     }
-    // more than 300 seconds behind
-    if nonce + 300000 < now_ms {
-        CUR_NONCE.fetch_max(now_ms, Ordering::Relaxed);
-    }
-    nonce
 }
 
 pub(crate) const WIRE_DECIMALS: u8 = 8;
