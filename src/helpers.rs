@@ -12,17 +12,37 @@ fn now_timestamp_ms() -> u64 {
 }
 
 pub(crate) fn next_nonce() -> u64 {
-    let nonce = CUR_NONCE.fetch_add(1, Ordering::Relaxed);
+    // nonce must stay close to wall clock on every call, not just when drift
+    // crosses an arbitrary threshold. fetch_add(1) advances the counter by
+    // only 1ms per call, so below ~1000 req/s the counter falls behind wall
+    // clock. PR #108 fixes the most acute symptom (returning a stale nonce
+    // when the 5-minute correction fires) but still lets the counter drift
+    // for up to 5 minutes between corrections -- during that window every
+    // nonce is behind wall clock, and exchanges that bound nonce-vs-wall
+    // will reject them.
+    //
+    // this CAS loop eliminates drift entirely: every call pulls in now_ms
+    // and returns max(prev, now_ms) + 1, preserving strict monotonicity
+    // across threads.
     let now_ms = now_timestamp_ms();
-    if nonce > now_ms + 1000 {
-        info!("nonce progressed too far ahead {nonce} {now_ms}");
+    let mut prev = CUR_NONCE.load(Ordering::Relaxed);
+    loop {
+        let next = prev.max(now_ms).saturating_add(1);
+        match CUR_NONCE.compare_exchange_weak(
+            prev,
+            next,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => {
+                if next > now_ms + 1000 {
+                    info!("nonce progressed too far ahead {next} {now_ms}");
+                }
+                return next;
+            }
+            Err(actual) => prev = actual,
+        }
     }
-    // more than 300 seconds behind
-    if nonce + 300000 < now_ms {
-        CUR_NONCE.fetch_max(now_ms + 1, Ordering::Relaxed);
-        return now_ms;
-    }
-    nonce
 }
 
 pub(crate) const WIRE_DECIMALS: u8 = 8;
