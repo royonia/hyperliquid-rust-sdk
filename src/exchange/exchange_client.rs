@@ -295,6 +295,7 @@ impl ExchangeClient {
 
         let action = Actions::Cancel(BulkCancel {
             cancels: transformed_cancels,
+            fast: false,
         });
         let connection_id = action.hash(timestamp, self.vault_address, None)?;
 
@@ -308,6 +309,7 @@ impl ExchangeClient {
         &self,
         cancels: Vec<ClientCancelRequest>,
         wallet: Option<&LocalWallet>,
+        fast: bool,
     ) -> Result<ExchangePayload> {
         let wallet = wallet.unwrap_or(&self.wallet);
         let timestamp = next_nonce();
@@ -322,6 +324,7 @@ impl ExchangeClient {
 
         let action = Actions::Cancel(BulkCancel {
             cancels: transformed_cancels,
+            fast,
         });
         let connection_id = action.hash(timestamp, self.vault_address, None)?;
 
@@ -366,6 +369,7 @@ impl ExchangeClient {
 
         let action = Actions::CancelByCloid(BulkCancelCloid {
             cancels: transformed_cancels,
+            fast: false,
         });
 
         let connection_id = action.hash(timestamp, self.vault_address, None)?;
@@ -380,6 +384,7 @@ impl ExchangeClient {
         &self,
         cancels: Vec<ClientCancelRequestCloid>,
         wallet: Option<&LocalWallet>,
+        fast: bool,
     ) -> Result<ExchangePayload> {
         let wallet = wallet.unwrap_or(&self.wallet);
         let timestamp = next_nonce();
@@ -394,6 +399,7 @@ impl ExchangeClient {
 
         let action = Actions::CancelByCloid(BulkCancelCloid {
             cancels: transformed_cancels,
+            fast,
         });
 
         let connection_id = action.hash(timestamp, self.vault_address, None)?;
@@ -670,6 +676,9 @@ mod tests {
                 asset: 1,
                 oid: 82382,
             }],
+            // fast: false is omitted from the hash, so these signatures are
+            // unchanged from before the flag existed — a backward-compat guard.
+            fast: false,
         });
         let connection_id = action.hash(1583838, None, None)?;
 
@@ -678,6 +687,18 @@ mod tests {
 
         let signature = sign_l1_action(&wallet, connection_id, false)?;
         assert_eq!(signature.to_string(), "6ffebadfd48067663390962539fbde76cfa36f53be65abe2ab72c9db6d0db44457720db9d7c4860f142a484f070c84eb4b9694c3a617c83f0d698a27e55fd5e01c");
+
+        // fast: true is serialized into the hash (as "f"), so it must produce a
+        // different connection id / signature than fast: false above.
+        let fast_action = Actions::Cancel(BulkCancel {
+            cancels: vec![CancelRequest {
+                asset: 1,
+                oid: 82382,
+            }],
+            fast: true,
+        });
+        let fast_connection_id = fast_action.hash(1583838, None, None)?;
+        assert_ne!(connection_id, fast_connection_id);
 
         Ok(())
     }

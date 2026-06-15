@@ -40,12 +40,19 @@ pub struct BulkOrder {
 #[serde(rename_all = "camelCase")]
 pub struct BulkCancel {
     pub cancels: Vec<CancelRequest>,
+    // optional fast-cancel flag. MUST be omitted when false: HL rejects actions
+    // hashed with f: false. skip_serializing_if keeps it out of both the rmp
+    // hash and the posted json so f: false stays byte-identical to no flag.
+    #[serde(rename = "f", default, skip_serializing_if = "std::ops::Not::not")]
+    pub fast: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BulkCancelCloid {
     pub cancels: Vec<CancelRequestCloid>,
+    #[serde(rename = "f", default, skip_serializing_if = "std::ops::Not::not")]
+    pub fast: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
